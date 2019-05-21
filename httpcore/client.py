@@ -2,6 +2,7 @@ import asyncio
 import typing
 from types import TracebackType
 
+from .auth import HTTPBasicAuth
 from .config import (
     DEFAULT_MAX_REDIRECTS,
     DEFAULT_POOL_LIMITS,
@@ -16,6 +17,9 @@ from .exceptions import RedirectBodyUnavailable, RedirectLoop, TooManyRedirects
 from .interfaces import ConcurrencyBackend, Dispatcher
 from .models import (
     URL,
+    AuthTypes,
+    Cookies,
+    CookieTypes,
     Headers,
     HeaderTypes,
     QueryParamTypes,
@@ -31,6 +35,8 @@ from .status_codes import codes
 class AsyncClient:
     def __init__(
         self,
+        auth: AuthTypes = None,
+        cookies: CookieTypes = None,
         ssl: SSLConfig = DEFAULT_SSL_CONFIG,
         timeout: TimeoutConfig = DEFAULT_TIMEOUT_CONFIG,
         pool_limits: PoolLimits = DEFAULT_POOL_LIMITS,
@@ -43,6 +49,8 @@ class AsyncClient:
                 ssl=ssl, timeout=timeout, pool_limits=pool_limits, backend=backend
             )
 
+        self.auth = auth
+        self.cookies = Cookies(cookies)
         self.max_redirects = max_redirects
         self.dispatch = dispatch
 
@@ -50,9 +58,11 @@ class AsyncClient:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -60,9 +70,11 @@ class AsyncClient:
         return await self.request(
             "GET",
             url,
-            query_params=query_params,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -72,9 +84,11 @@ class AsyncClient:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -82,9 +96,11 @@ class AsyncClient:
         return await self.request(
             "OPTIONS",
             url,
-            query_params=query_params,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -94,9 +110,11 @@ class AsyncClient:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = False,  #  Note: Differs to usual default.
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -104,9 +122,11 @@ class AsyncClient:
         return await self.request(
             "HEAD",
             url,
-            query_params=query_params,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -117,9 +137,12 @@ class AsyncClient:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -128,9 +151,12 @@ class AsyncClient:
             "POST",
             url,
             data=data,
-            query_params=query_params,
+            json=json,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -141,9 +167,12 @@ class AsyncClient:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -152,9 +181,12 @@ class AsyncClient:
             "PUT",
             url,
             data=data,
-            query_params=query_params,
+            json=json,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -165,9 +197,12 @@ class AsyncClient:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -176,9 +211,12 @@ class AsyncClient:
             "PATCH",
             url,
             data=data,
-            query_params=query_params,
+            json=json,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -189,9 +227,12 @@ class AsyncClient:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -200,9 +241,12 @@ class AsyncClient:
             "DELETE",
             url,
             data=data,
-            query_params=query_params,
+            json=json,
+            params=params,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -214,20 +258,30 @@ class AsyncClient:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
     ) -> Response:
         request = Request(
-            method, url, data=data, query_params=query_params, headers=headers
+            method,
+            url,
+            data=data,
+            json=json,
+            params=params,
+            headers=headers,
+            cookies=self.merge_cookies(cookies),
         )
         self.prepare_request(request)
         response = await self.send(
             request,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -237,7 +291,47 @@ class AsyncClient:
     def prepare_request(self, request: Request) -> None:
         request.prepare()
 
+    def merge_cookies(
+        self, cookies: CookieTypes = None
+    ) -> typing.Optional[CookieTypes]:
+        if cookies or self.cookies:
+            merged_cookies = Cookies(self.cookies)
+            merged_cookies.update(cookies)
+            return merged_cookies
+        return cookies
+
     async def send(
+        self,
+        request: Request,
+        *,
+        stream: bool = False,
+        auth: AuthTypes = None,
+        ssl: SSLConfig = None,
+        timeout: TimeoutConfig = None,
+        allow_redirects: bool = True,
+    ) -> Response:
+        if auth is None:
+            auth = self.auth
+
+        url = request.url
+        if auth is None and (url.username or url.password):
+            auth = HTTPBasicAuth(username=url.username, password=url.password)
+
+        if auth is not None:
+            if isinstance(auth, tuple):
+                auth = HTTPBasicAuth(username=auth[0], password=auth[1])
+            request = auth(request)
+
+        response = await self.send_handling_redirects(
+            request,
+            stream=stream,
+            ssl=ssl,
+            timeout=timeout,
+            allow_redirects=allow_redirects,
+        )
+        return response
+
+    async def send_handling_redirects(
         self,
         request: Request,
         *,
@@ -262,6 +356,7 @@ class AsyncClient:
                 request, stream=stream, ssl=ssl, timeout=timeout
             )
             response.history = list(history)
+            self.cookies.extract_cookies(response)
             history = [response] + history
             if not response.is_redirect:
                 break
@@ -273,7 +368,7 @@ class AsyncClient:
                 async def send_next() -> Response:
                     nonlocal request, response, ssl, allow_redirects, timeout, history
                     request = self.build_redirect_request(request, response)
-                    response = await self.send(
+                    response = await self.send_handling_redirects(
                         request,
                         stream=stream,
                         allow_redirects=allow_redirects,
@@ -293,7 +388,10 @@ class AsyncClient:
         url = self.redirect_url(request, response)
         headers = self.redirect_headers(request, url)
         content = self.redirect_content(request, method)
-        return Request(method=method, url=url, headers=headers, data=content)
+        cookies = self.merge_cookies(request.cookies)
+        return Request(
+            method=method, url=url, headers=headers, data=content, cookies=cookies
+        )
 
     def redirect_method(self, request: Request, response: Response) -> str:
         """
@@ -375,6 +473,7 @@ class AsyncClient:
 class Client:
     def __init__(
         self,
+        auth: AuthTypes = None,
         ssl: SSLConfig = DEFAULT_SSL_CONFIG,
         timeout: TimeoutConfig = DEFAULT_TIMEOUT_CONFIG,
         pool_limits: PoolLimits = DEFAULT_POOL_LIMITS,
@@ -383,6 +482,7 @@ class Client:
         backend: ConcurrencyBackend = None,
     ) -> None:
         self._client = AsyncClient(
+            auth=auth,
             ssl=ssl,
             timeout=timeout,
             pool_limits=pool_limits,
@@ -392,26 +492,40 @@ class Client:
         )
         self._loop = asyncio.new_event_loop()
 
+    @property
+    def cookies(self) -> Cookies:
+        return self._client.cookies
+
     def request(
         self,
         method: str,
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
     ) -> SyncResponse:
         request = Request(
-            method, url, data=data, query_params=query_params, headers=headers
+            method,
+            url,
+            data=data,
+            json=json,
+            params=params,
+            headers=headers,
+            cookies=self._client.merge_cookies(cookies),
         )
         self.prepare_request(request)
         response = self.send(
             request,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -422,9 +536,11 @@ class Client:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -433,7 +549,9 @@ class Client:
             "GET",
             url,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -443,9 +561,11 @@ class Client:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -454,7 +574,9 @@ class Client:
             "OPTIONS",
             url,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -464,9 +586,11 @@ class Client:
         self,
         url: URLTypes,
         *,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = False,  #  Note: Differs to usual default.
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -475,7 +599,9 @@ class Client:
             "HEAD",
             url,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -486,9 +612,12 @@ class Client:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -497,8 +626,11 @@ class Client:
             "POST",
             url,
             data=data,
+            json=json,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -509,9 +641,12 @@ class Client:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -520,8 +655,11 @@ class Client:
             "PUT",
             url,
             data=data,
+            json=json,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -532,9 +670,12 @@ class Client:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -543,8 +684,11 @@ class Client:
             "PATCH",
             url,
             data=data,
+            json=json,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -555,9 +699,12 @@ class Client:
         url: URLTypes,
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -566,8 +713,11 @@ class Client:
             "DELETE",
             url,
             data=data,
+            json=json,
             headers=headers,
+            cookies=cookies,
             stream=stream,
+            auth=auth,
             allow_redirects=allow_redirects,
             ssl=ssl,
             timeout=timeout,
@@ -581,6 +731,7 @@ class Client:
         request: Request,
         *,
         stream: bool = False,
+        auth: AuthTypes = None,
         allow_redirects: bool = True,
         ssl: SSLConfig = None,
         timeout: TimeoutConfig = None,
@@ -589,6 +740,7 @@ class Client:
             self._client.send(
                 request,
                 stream=stream,
+                auth=auth,
                 allow_redirects=allow_redirects,
                 ssl=ssl,
                 timeout=timeout,

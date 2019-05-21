@@ -24,6 +24,14 @@ async def test_post(server):
 
 
 @pytest.mark.asyncio
+async def test_post_json(server):
+    url = "http://127.0.0.1:8000/"
+    async with httpcore.AsyncClient() as client:
+        response = await client.post(url, json={"text": "Hello, world!"})
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_stream_response(server):
     async with httpcore.AsyncClient() as client:
         response = await client.request("GET", "http://127.0.0.1:8000/", stream=True)
@@ -111,3 +119,16 @@ async def test_delete(server):
         response = await client.delete(url)
     assert response.status_code == 200
     assert response.text == "Hello, world!"
+
+
+@pytest.mark.asyncio
+async def test_100_continue(server):
+    url = "http://127.0.0.1:8000/echo_body"
+    headers = {"Expect": "100-continue"}
+    data = b"Echo request body"
+
+    async with httpcore.AsyncClient() as client:
+        response = await client.post(url, headers=headers, data=data)
+
+    assert response.status_code == 200
+    assert response.content == data

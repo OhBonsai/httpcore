@@ -1,13 +1,16 @@
 import asyncio
 import cgi
+import email.message
+import json as jsonlib
 import typing
+import urllib.request
+from collections.abc import MutableMapping
+from http.cookiejar import Cookie, CookieJar
 from urllib.parse import parse_qsl, urlencode
 
 import chardet
-import idna
 import rfc3986
 
-from .config import SSLConfig, TimeoutConfig
 from .decoders import (
     ACCEPT_ENCODING,
     SUPPORTED_DECODERS,
@@ -16,6 +19,7 @@ from .decoders import (
     MultiDecoder,
 )
 from .exceptions import (
+    CookieConflict,
     HttpError,
     InvalidURL,
     ResponseClosed,
@@ -45,6 +49,13 @@ HeaderTypes = typing.Union[
     typing.List[typing.Tuple[typing.AnyStr, typing.AnyStr]],
 ]
 
+CookieTypes = typing.Union["Cookies", CookieJar, typing.Dict[str, str]]
+
+AuthTypes = typing.Union[
+    typing.Tuple[typing.Union[str, bytes], typing.Union[str, bytes]],
+    typing.Callable[["Request"], "Request"],
+]
+
 RequestData = typing.Union[dict, bytes, typing.AsyncIterator[bytes]]
 
 ResponseContent = typing.Union[bytes, typing.AsyncIterator[bytes]]
@@ -55,7 +66,7 @@ class URL:
         self,
         url: URLTypes,
         allow_relative: bool = False,
-        query_params: QueryParamTypes = None,
+        params: QueryParamTypes = None,
     ) -> None:
         if isinstance(url, rfc3986.uri.URIReference):
             self.components = url
@@ -74,8 +85,8 @@ class URL:
         self.components = self.components.normalize()
 
         # Add any query parameters.
-        if query_params:
-            query_string = str(QueryParams(query_params))
+        if params:
+            query_string = str(QueryParams(params))
             self.components = self.components.copy_with(query=query_string)
 
         # Enforce absolute URLs by default.
@@ -94,6 +105,16 @@ class URL:
     @property
     def authority(self) -> str:
         return self.components.authority or ""
+
+    @property
+    def username(self) -> str:
+        userinfo = self.components.userinfo or ""
+        return userinfo.partition(":")[0]
+
+    @property
+    def password(self) -> str:
+        userinfo = self.components.userinfo or ""
+        return userinfo.partition(":")[2]
 
     @property
     def host(self) -> str:
@@ -460,12 +481,21 @@ class Request:
         url: typing.Union[str, URL],
         *,
         data: RequestData = b"",
-        query_params: QueryParamTypes = None,
+        json: typing.Any = None,
+        params: QueryParamTypes = None,
         headers: HeaderTypes = None,
+        cookies: CookieTypes = None,
     ):
         self.method = method.upper()
-        self.url = URL(url, query_params=query_params)
+        self.url = URL(url, params=params)
         self.headers = Headers(headers)
+        if cookies:
+            self._cookies = Cookies(cookies)
+            self._cookies.set_cookie_header(self)
+
+        if json is not None:
+            data = jsonlib.dumps(json).encode("utf-8")
+            self.headers["Content-Type"] = "application/json"
 
         if isinstance(data, bytes):
             self.is_streaming = False
@@ -522,6 +552,12 @@ class Request:
 
         for item in reversed(auto_headers):
             self.headers.raw.insert(0, item)
+
+    @property
+    def cookies(self) -> "Cookies":
+        if not hasattr(self, "_cookies"):
+            self._cookies = Cookies()
+        return self._cookies
 
     def __repr__(self) -> str:
         class_name = self.__class__.__name__
@@ -743,6 +779,17 @@ class Response:
         if message:
             raise HttpError(message)
 
+    def json(self) -> typing.Any:
+        return jsonlib.loads(self.content.decode("utf-8"))
+
+    @property
+    def cookies(self) -> "Cookies":
+        if not hasattr(self, "_cookies"):
+            assert self.request is not None
+            self._cookies = Cookies()
+            self._cookies.extract_cookies(self)
+        return self._cookies
+
     def __repr__(self) -> str:
         return f"<Response({self.status_code}, {self.reason_phrase!r})>"
 
@@ -800,6 +847,9 @@ class SyncResponse:
     def raise_for_status(self) -> None:
         return self._response.raise_for_status()
 
+    def json(self) -> typing.Any:
+        return self._response.json()
+
     def read(self) -> bytes:
         return self._loop.run_until_complete(self._response.read())
 
@@ -808,7 +858,7 @@ class SyncResponse:
         while True:
             try:
                 yield self._loop.run_until_complete(inner.__anext__())
-            except StopAsyncIteration as exc:
+            except StopAsyncIteration:
                 break
 
     def raw(self) -> typing.Iterator[bytes]:
@@ -816,11 +866,190 @@ class SyncResponse:
         while True:
             try:
                 yield self._loop.run_until_complete(inner.__anext__())
-            except StopAsyncIteration as exc:
+            except StopAsyncIteration:
                 break
 
     def close(self) -> None:
         return self._loop.run_until_complete(self._response.close())
 
+    @property
+    def cookies(self) -> "Cookies":
+        return self._response.cookies
+
     def __repr__(self) -> str:
         return f"<Response({self.status_code}, {self.reason_phrase!r})>"
+
+
+class Cookies(MutableMapping):
+    """
+    HTTP Cookies, as a mutable mapping.
+    """
+
+    def __init__(self, cookies: CookieTypes = None) -> None:
+        if cookies is None or isinstance(cookies, dict):
+            self.jar = CookieJar()
+            if isinstance(cookies, dict):
+                for key, value in cookies.items():
+                    self.set(key, value)
+        elif isinstance(cookies, Cookies):
+            self.jar = CookieJar()
+            for cookie in cookies.jar:
+                self.jar.set_cookie(cookie)
+        else:
+            self.jar = cookies
+
+    def extract_cookies(self, response: Response) -> None:
+        """
+        Loads any cookies based on the response `Set-Cookie` headers.
+        """
+        assert response.request is not None
+        urlib_response = self._CookieCompatResponse(response)
+        urllib_request = self._CookieCompatRequest(response.request)
+
+        self.jar.extract_cookies(urlib_response, urllib_request)  # type: ignore
+
+    def set_cookie_header(self, request: Request) -> None:
+        """
+        Sets an appropriate 'Cookie:' HTTP header on the `Request`.
+        """
+        urllib_request = self._CookieCompatRequest(request)
+        self.jar.add_cookie_header(urllib_request)
+
+    def set(self, name: str, value: str, domain: str = "", path: str = "/") -> None:
+        """
+        Set a cookie value by name. May optionally include domain and path.
+        """
+        kwargs = dict(
+            version=0,
+            name=name,
+            value=value,
+            port=None,
+            port_specified=False,
+            domain=domain,
+            domain_specified=bool(domain),
+            domain_initial_dot=domain.startswith("."),
+            path=path,
+            path_specified=bool(path),
+            secure=False,
+            expires=None,
+            discard=True,
+            comment=None,
+            comment_url=None,
+            rest={"HttpOnly": None},
+            rfc2109=False,
+        )
+        cookie = Cookie(**kwargs)  # type: ignore
+        self.jar.set_cookie(cookie)
+
+    def get(  # type: ignore
+        self, name: str, default: str = None, domain: str = None, path: str = None
+    ) -> typing.Optional[str]:
+        """
+        Get a cookie by name. May optionally include domain and path
+        in order to specify exactly which cookie to retrieve.
+        """
+        value = None
+        for cookie in self.jar:
+            if cookie.name == name:
+                if domain is None or cookie.domain == domain:  # type: ignore
+                    if path is None or cookie.path == path:
+                        if value is not None:
+                            message = f"Multiple cookies exist with name={name}"
+                            raise CookieConflict(message)
+                        value = cookie.value
+
+        if value is None:
+            return default
+        return value
+
+    def delete(self, name: str, domain: str = None, path: str = None) -> None:
+        """
+        Delete a cookie by name. May optionally include domain and path
+        in order to specify exactly which cookie to delete.
+        """
+        if domain is not None and path is not None:
+            return self.jar.clear(domain, path, name)
+
+        remove = []
+        for cookie in self.jar:
+            if cookie.name == name:
+                if domain is None or cookie.domain == domain:  # type: ignore
+                    if path is None or cookie.path == path:
+                        remove.append(cookie)
+
+        for cookie in remove:
+            self.jar.clear(cookie.domain, cookie.path, cookie.name)  # type: ignore
+
+    def clear(self, domain: str = None, path: str = None) -> None:
+        """
+        Delete all cookies. Optionally include a domain and path in
+        order to only delete a subset of all the cookies.
+        """
+        args = []
+        if domain is not None:
+            args.append(domain)
+        if path is not None:
+            assert domain is not None
+            args.append(path)
+        self.jar.clear(*args)
+
+    def update(self, cookies: CookieTypes = None) -> None:  # type: ignore
+        cookies = Cookies(cookies)
+        for cookie in cookies.jar:
+            self.jar.set_cookie(cookie)
+
+    def __setitem__(self, name: str, value: str) -> None:
+        return self.set(name, value)
+
+    def __getitem__(self, name: str) -> str:
+        value = self.get(name)
+        if value is None:
+            raise KeyError(name)
+        return value
+
+    def __delitem__(self, name: str) -> None:
+        return self.delete(name)
+
+    def __len__(self) -> int:
+        return len(self.jar)
+
+    def __iter__(self) -> typing.Iterator[str]:
+        return (cookie.name for cookie in self.jar)
+
+    def __bool__(self) -> bool:
+        for cookie in self.jar:
+            return True
+        return False
+
+    class _CookieCompatRequest(urllib.request.Request):
+        """
+        Wraps a `Request` instance up in a compatability interface suitable
+        for use with `CookieJar` operations.
+        """
+
+        def __init__(self, request: Request) -> None:
+            super().__init__(
+                url=str(request.url),
+                headers=dict(request.headers),
+                method=request.method,
+            )
+            self.request = request
+
+        def add_unredirected_header(self, key: str, value: str) -> None:
+            super().add_unredirected_header(key, value)
+            self.request.headers[key] = value
+
+    class _CookieCompatResponse:
+        """
+        Wraps a `Request` instance up in a compatability interface suitable
+        for use with `CookieJar` operations.
+        """
+
+        def __init__(self, response: Response):
+            self.response = response
+
+        def info(self) -> email.message.Message:
+            info = email.message.Message()
+            for key, value in self.response.headers.items():
+                info[key] = value
+            return info
